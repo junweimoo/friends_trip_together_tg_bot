@@ -19,7 +19,7 @@ async def start_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Need at least 2 registered users. Use /register first.")
         return ConversationHandler.END
 
-    # Produce prompt: payer
+    # Produce prompt: select payer
     keyboard = []
     for user in users:
         keyboard.append([InlineKeyboardButton(user.name, callback_data=str(user.user_id))])
@@ -35,6 +35,7 @@ async def start_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def select_payer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Step 2: Save payer and ask who received (including Split option)."""
+    # Consume data: select payer
     query = update.callback_query
     await query.answer()
 
@@ -45,47 +46,22 @@ async def select_payer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payer_id = int(query.data)
     context.user_data['payer_id'] = payer_id
 
-    chat_id = update.effective_chat.id
-    thread_id = update.effective_message.message_thread_id
-
-    async with get_session() as session:
-        users = await get_chat_users(session, chat_id, thread_id)
-        payer_name = next((u.name for u in users if u.user_id == payer_id), "Unknown")
-        context.user_data['payer_name'] = payer_name
-
-    # Produce prompt: payee
-    keyboard = []
-    for user in users:
-        if user.user_id != payer_id:
-            keyboard.append([InlineKeyboardButton(user.name, callback_data=str(user.user_id))])
-
-    keyboard.append([InlineKeyboardButton("👨‍👩‍👧‍👦 Split Equally (All)", callback_data="SPLIT_ALL")])
-    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="CANCEL")])
-
+    # Produce prompt: comment
     await query.edit_message_text(
-        f"✅ **{payer_name}** paid.\n\nWho is this **FOR**?",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        f"📝 What is this payment for? (Enter a description)",
         parse_mode='Markdown'
     )
+    return ENTER_COMMENT
 
-    return SELECT_PAYEE
-
-async def select_payee(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def enter_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Step 3: Save payee (or SPLIT flag) and ask for total amount."""
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "CANCEL":
-        await query.edit_message_text("❌ Transaction cancelled.")
-        return ConversationHandler.END
-
-    payee_data = query.data
-    context.user_data['payee_data'] = payee_data
+    # Consume data: comment
+    description = update.message.text.strip()
+    context.user_data['description'] = description
 
     # Produce prompt: total amount
-    text_display = "everyone (Split)" if payee_data == "SPLIT_ALL" else "a specific user"
-    await query.edit_message_text(
-        f"For **{text_display}**.\n\n💰 Enter the **TOTAL AMOUNT** (e.g., 60.00):",
+    await update.message.reply_text(
+        f"💰 Enter the **TOTAL AMOUNT** (e.g., 60.00):",
         parse_mode='Markdown'
     )
     # Move to the state that captures the amount text input
@@ -93,6 +69,7 @@ async def select_payee(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Step 4: Validate amount and ask for currency."""
+    # Consume data: total amount
     text = update.message.text.strip()
 
     try:
@@ -125,6 +102,7 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def select_currency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Step 5: Save Currency and ask for Comment/Description."""
+    # Consume data: currencies
     query = update.callback_query
     await query.answer()
 
@@ -134,18 +112,47 @@ async def select_currency(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data['currency'] = query.data
 
-    # Produce prompt: comment
+    # Produce prompt: payee
+    chat_id = update.effective_chat.id
+    thread_id = update.effective_message.message_thread_id
+
+    payer_id = context.user_data['payer_id']
+
+    async with get_session() as session:
+        users = await get_chat_users(session, chat_id, thread_id)
+        payer_name = next((u.name for u in users if u.user_id == payer_id), "Unknown")
+        context.user_data['payer_name'] = payer_name
+    keyboard = []
+    for user in users:
+        if user.user_id != payer_id:
+            keyboard.append([InlineKeyboardButton(user.name, callback_data=str(user.user_id))])
+
+    keyboard.append([InlineKeyboardButton("👨‍👩‍👧‍👦 Split Equally (All)", callback_data="SPLIT_ALL")])
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="CANCEL")])
+
     await query.edit_message_text(
-        f"📝 What is this payment for? (Enter a description)",
+        f"✅ **{payer_name}** paid.\n\nWho is this **FOR**?",
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
-    return ENTER_COMMENT
 
-async def enter_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return SELECT_PAYEE
+
+async def select_payee(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Step 6: Save everything to DB."""
-    description = update.message.text.strip()
-    data = context.user_data
+    # Consume data: select payee(s)
+    query = update.callback_query
+    await query.answer()
 
+    if query.data == "CANCEL":
+        await query.edit_message_text("❌ Transaction cancelled.")
+        return ConversationHandler.END
+
+    payee_data = query.data
+    context.user_data['payee_data'] = payee_data
+
+    # Store to db
+    data = context.user_data
     chat_id = update.effective_chat.id
     thread_id = update.effective_message.message_thread_id
 
@@ -157,7 +164,7 @@ async def enter_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             payee_id_or_split=data['payee_data'],
             currency=data['currency'],
             total_amount=data['amount'],
-            description=description
+            description=data['description']
         )
 
         payer_name = data['payer_name']
@@ -166,21 +173,32 @@ async def enter_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if data['payee_data'] == "SPLIT_ALL":
             msg = (f"✅ **Split Bill Recorded!**\n"
-                   f"📌 Group: {description}\n"
+                   f"📌 Purpose: {data['description']}\n"
                    f"👤 Payer: {payer_name}\n"
                    f"💵 Total: {data['amount']} {data['currency']}\n"
                    f"🔗 Split among {record_count + 1} people") # +1 includes the payer
         else:
             msg = (f"✅ **Payment Recorded!**\n"
-                   f"📌 For: {description}\n"
+                   f"📌 Purpose: {data['description']}\n"
                    f"👤 From: {payer_name}\n"
                    f"💵 Amount: {data['amount']} {data['currency']}")
 
-        await update.message.reply_text(msg, parse_mode='Markdown')
+        await context.bot.send_message(
+            chat_id=chat_id,
+            message_thread_id=thread_id,
+            parse_mode='Markdown',
+            text=msg
+        )
 
     except Exception as e:
         logging.error(f"DB Error: {e}")
-        await update.message.reply_text("❌ Error saving transaction.")
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            message_thread_id=thread_id,
+            parse_mode='Markdown',
+            text="❌ Error saving transaction."
+        )
 
     return ConversationHandler.END
 

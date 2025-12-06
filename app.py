@@ -13,9 +13,7 @@ from telegram.ext import (
     filters
 )
 
-# Import local modules
 from database import init_db, upsert_user
-# Import the new payment handlers and states
 from pay import (
     start_pay, select_payer, select_payee, enter_amount, select_currency, enter_comment, cancel,
     SELECT_PAYER, SELECT_PAYEE, ENTER_AMOUNT, SELECT_CURRENCY, ENTER_COMMENT
