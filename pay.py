@@ -128,6 +128,7 @@ async def select_currency(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard.append([InlineKeyboardButton(user.name, callback_data=str(user.user_id))])
 
     keyboard.append([InlineKeyboardButton("👨‍👩‍👧‍👦 Split Equally (All)", callback_data="SPLIT_ALL")])
+    # keyboard.append([InlineKeyboardButton("👨‍👩‍👧‍👦 Split by amounts", callback_data="SPLIT_AMOUNTS")])
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="CANCEL")])
 
     await query.edit_message_text(
@@ -183,21 +184,17 @@ async def select_payee(update: Update, context: ContextTypes.DEFAULT_TYPE):
                    f"👤 From: {payer_name}\n"
                    f"💵 Amount: {data['amount']} {data['currency']}")
 
-        await context.bot.send_message(
-            chat_id=chat_id,
-            message_thread_id=thread_id,
-            parse_mode='Markdown',
-            text=msg
+        await query.edit_message_text(
+            msg,
+            parse_mode='Markdown'
         )
 
     except Exception as e:
         logging.error(f"DB Error: {e}")
 
-        await context.bot.send_message(
-            chat_id=chat_id,
-            message_thread_id=thread_id,
-            parse_mode='Markdown',
-            text="❌ Error saving transaction."
+        await query.edit_message_text(
+            "❌ Error saving transaction.",
+            parse_mode='Markdown'
         )
 
     return ConversationHandler.END
