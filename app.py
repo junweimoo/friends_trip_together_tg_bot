@@ -21,7 +21,7 @@ from pay import (
     SELECT_CONSUMER_FOR_SPLIT, ENTER_CONSUMER_AMOUNT
 )
 from users import register
-from settle import list_settlements
+from list import list_settlements
 from simplify import suggest_settlements
 
 load_dotenv()
