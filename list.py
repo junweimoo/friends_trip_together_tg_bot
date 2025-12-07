@@ -3,7 +3,6 @@ from sqlalchemy import select
 from telegram import Update
 from telegram.ext import ContextTypes
 
-# Import models
 from database import get_session, PayRecord, User, PaymentGroup, PaymentGroupLink, get_chat_users
 
 async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):

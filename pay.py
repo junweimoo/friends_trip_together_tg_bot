@@ -14,6 +14,9 @@ async def start_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.effective_chat.id
     thread_id = update.message.message_thread_id
+    user_id = update.effective_user.id
+
+    context.user_data['initiator_id'] = user_id
 
     async with get_session() as session:
         users = await get_chat_users(session, chat_id, thread_id)
@@ -57,6 +60,10 @@ async def select_payer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def enter_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Step 3: Save comment and ask for total amount."""
+    if not is_message_sender_initiator(update, context):
+        await update.message.reply_text("Only the user who started this transaction can answer.")
+        return ENTER_COMMENT
+
     description = update.message.text.strip()
     context.user_data['description'] = description
 
@@ -68,6 +75,10 @@ async def enter_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Step 4: Validate amount and ask for currency."""
+    if not is_message_sender_initiator(update, context):
+        await update.message.reply_text("Only the user who started this transaction can answer.")
+        return ENTER_AMOUNT
+
     text = update.message.text.strip()
 
     try:
@@ -140,7 +151,7 @@ async def select_payee(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['payee_data'] = payee_data
 
     if payee_data == "SPLIT_AMOUNTS":
-        await query.edit_message_text("Starting detailed allocation...\n\nSelect the first person:", parse_mode='Markdown')
+        await query.edit_message_text("Starting manual allocation...", parse_mode='Markdown')
         return await prompt_consumer_selection(update, context)
     else:
         return await finalize_split(update, context)
@@ -226,6 +237,10 @@ async def select_consumer_for_split(update: Update, context: ContextTypes.DEFAUL
 
 async def enter_consumer_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Step 8: Save amount for consumer and loop back."""
+    if not is_message_sender_initiator(update, context):
+        await update.message.reply_text("Only the user who started this transaction can answer.")
+        return ENTER_CONSUMER_AMOUNT
+
     text = update.message.text.strip()
     consumer_id = context.user_data.get('current_consumer_id')
 
@@ -288,7 +303,7 @@ async def finalize_split(update, context, detailed=False):
         )
 
         if detailed:
-            msg = (f"✅ **Detailed Split Recorded!**\n"
+            msg = (f"✅ **Manual Split Recorded!**\n"
                    f"📌 {data['description']}\n"
                    f"👤 Payer: {payer_name}\n"
                    f"💵 Total: {total_amount} {data['currency']}")
@@ -322,3 +337,8 @@ async def finalize_split(update, context, detailed=False):
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Transaction cancelled.")
     return ConversationHandler.END
+
+def is_message_sender_initiator(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    initiator_id = context.user_data['initiator_id']
+    sender_id = update.effective_user.id
+    return sender_id == initiator_id
