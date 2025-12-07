@@ -3,7 +3,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from database import get_session, User, upsert_user
+from database import get_session, User, upsert_user, check_username_exists
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -23,6 +23,10 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     thread_id = update.message.message_thread_id
+
+    if await check_username_exists(chat_id, thread_id, username): 
+        await update.message.reply_text("This username already exists in this chat. Please choose another.")
+        return
 
     try:
         await upsert_user(user_id, chat_id, thread_id, username)

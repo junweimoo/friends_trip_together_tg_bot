@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 # Import models
-from database import get_session, PayRecord, User, PaymentGroup, PaymentGroupLink
+from database import get_session, PayRecord, User, PaymentGroup, PaymentGroupLink, get_chat_users
 
 async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -40,12 +40,7 @@ async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # 2. Fetch Users for Name Mapping
-        stmt_users = select(User).where(
-            User.chat_id == chat_id,
-            User.thread_id == thread_id
-        )
-        users_result = await session.execute(stmt_users)
-        users = users_result.scalars().all()
+        users = await get_chat_users(session, chat_id, thread_id)
         user_map = {u.user_id: u.name for u in users}
 
         # 3. Process Data

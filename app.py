@@ -20,6 +20,7 @@ from pay import (
     SELECT_PAYER, ENTER_COMMENT, ENTER_AMOUNT, SELECT_CURRENCY, SELECT_PAYEE,
     SELECT_CONSUMER_FOR_SPLIT, ENTER_CONSUMER_AMOUNT
 )
+from users import register
 from settle import list_settlements
 from simplify import suggest_settlements
 
@@ -49,29 +50,6 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message_thread_id=update.message.message_thread_id,
         text='\n'.join(reply_lines)
     )
-
-async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Registers the user into the database."""
-    if not context.args:
-        await update.message.reply_text("Usage: /register {username}")
-        return
-
-    username = " ".join(context.args)
-    if not (2 <= len(username) <= 20) or not username.replace(" ", "").isalpha():
-        await update.message.reply_text("Error: Username must be 2-20 letters/spaces.")
-        return
-
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    thread_id = update.message.message_thread_id
-
-    try:
-        await upsert_user(user_id, chat_id, thread_id, username)
-        await update.message.reply_text(f"Success! Registered as: {username}")
-
-    except Exception as e:
-        logging.error(f"Registration error: {e}")
-        await update.message.reply_text("Error registering.")
 
 async def post_init(application):
     print("Initializing database...")

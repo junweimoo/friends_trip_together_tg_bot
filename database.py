@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from sqlalchemy import Column, BigInteger, String, DateTime, Numeric, Integer, select, ForeignKey, Index
+from sqlalchemy import Column, BigInteger, String, DateTime, Numeric, Integer, select, ForeignKey, Index, func
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -43,10 +43,10 @@ class PaymentGroupLink(Base):
 class User(Base):
     __tablename__ = 'users'
     user_id = Column(BigInteger, primary_key=True)
+    chat_id = Column(BigInteger, primary_key=True)
+    thread_id = Column(Integer, primary_key=True)
     gmt_created = Column(DateTime, default=datetime.utcnow)
     gmt_modified = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    chat_id = Column(BigInteger, nullable=True)
-    thread_id = Column(Integer, nullable=True)
     name = Column(String(255))
     __table_args__ = (
         Index('idx_user_context', 'chat_id', 'thread_id'),
@@ -72,13 +72,16 @@ def get_session():
         raise Exception("Database not initialized. Call init_db first.")
     return async_session_factory()
 
+### USERS ###
+
 async def get_chat_users(session, chat_id, thread_id):
     """
     Fetches all registered users for a specific chat context.
     """
+    safe_thread_id = thread_id if thread_id is not None else 0
     stmt = select(User).where(
         User.chat_id == chat_id, 
-        User.thread_id == thread_id
+        User.thread_id == safe_thread_id
     )
     result = await session.execute(stmt)
     return result.scalars().all()
@@ -87,15 +90,32 @@ async def upsert_user(user_id, chat_id, thread_id, username):
     """
     Inserts a new user or updates an existing one.
     """
+    safe_thread_id = thread_id if thread_id is not None else 0
     async with get_session() as session:
         new_user = User(
             user_id=user_id,
             chat_id=chat_id,
-            thread_id=thread_id,
+            thread_id=safe_thread_id,
             name=username
         )
         await session.merge(new_user)
         await session.commit()
+
+async def check_username_exists(chat_id, thread_id, username):
+    """
+    Checks if a username is already taken in the specific chat/thread.
+    """
+    safe_thread_id = thread_id if thread_id is not None else 0
+    async with get_session() as session:
+        stmt = select(User.user_id).where(
+            User.chat_id == chat_id, 
+            User.thread_id == safe_thread_id,
+            func.lower(User.name) == func.lower(username)
+        ).limit(1)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+### PAYMENT_RECORDS ###
 
 async def create_payment(chat_id, thread_id, payer_id, payee_id, currency, amount):
     """
@@ -119,7 +139,6 @@ async def create_payment(chat_id, thread_id, payer_id, payee_id, currency, amoun
         await session.commit()
         
         return payee_name
-
 
 async def create_full_transaction(chat_id, thread_id, payer_id, payee_id_or_split, currency, total_amount, description):
     async with get_session() as session:
@@ -156,9 +175,7 @@ async def create_full_transaction(chat_id, thread_id, payer_id, payee_id_or_spli
         elif payee_id_or_split == "SPLIT_ALL":
             # --- SPLIT EQUALLY LOGIC ---
             # Fetch all users in chat
-            stmt = select(User).where(User.chat_id == chat_id, User.thread_id == thread_id)
-            result = await session.execute(stmt)
-            all_users = result.scalars().all()
+            all_users = await get_chat_users(session, chat_id, thread_id)
             
             if not all_users:
                 raise Exception("No users found to split.")
