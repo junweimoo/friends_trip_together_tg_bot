@@ -174,7 +174,6 @@ async def create_full_transaction(chat_id, thread_id, payer_id, payee_id_or_spli
 
         elif payee_id_or_split == "SPLIT_ALL":
             # --- SPLIT EQUALLY LOGIC ---
-            # Fetch all users in chat
             all_users = await get_chat_users(session, chat_id, thread_id)
             
             if not all_users:

@@ -14,8 +14,7 @@ async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
     thread_id = update.effective_message.message_thread_id
 
     async with get_session() as session:
-        # 1. Fetch records joined with Group info
-        # We use outer joins because some older records might not have a group
+        # 1. Fetch records
         stmt = select(
             PayRecord, 
             PaymentGroup.name, 
@@ -32,14 +31,13 @@ async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).order_by(PayRecord.gmt_created.asc())
         
         records_result = await session.execute(stmt)
-        # Each row is a tuple: (PayRecord, group_name, group_id)
         rows = records_result.all()
 
         if not rows:
             await update.message.reply_text("No transactions found in this chat.")
             return
 
-        # 2. Fetch Users for Name Mapping
+        # 2. Fetch Users
         users = await get_chat_users(session, chat_id, thread_id)
         user_map = {u.user_id: u.name for u in users}
 

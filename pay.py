@@ -4,21 +4,19 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from database import get_session, get_chat_users, create_full_transaction
 
-# Correct state order with detailed split steps
 SELECT_PAYER, ENTER_COMMENT, ENTER_AMOUNT, SELECT_CURRENCY, SELECT_PAYEE, \
     SELECT_CONSUMER_FOR_SPLIT, ENTER_CONSUMER_AMOUNT = range(7)
 
 async def start_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Step 1: Fetch users and ask who paid."""
-    context.user_data.clear() # Clear state for a new transaction
-    context.user_data['split_allocations'] = {} # Initialize allocations for detailed split
+    context.user_data.clear()
+    context.user_data['split_allocations'] = {}
 
     chat_id = update.effective_chat.id
     thread_id = update.message.message_thread_id
 
     async with get_session() as session:
         users = await get_chat_users(session, chat_id, thread_id)
-        # Store user map for quick name lookups later
         context.user_data['user_map'] = {u.user_id: u.name for u in users}
 
     if len(users) < 2:
@@ -114,12 +112,10 @@ async def select_currency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payer_name = context.user_data['payer_name']
 
     keyboard = []
-    # Individual Users
     for user_id, name in context.user_data['user_map'].items():
         if user_id != payer_id:
             keyboard.append([InlineKeyboardButton(name, callback_data=str(user_id))])
 
-    # Split Options
     keyboard.append([InlineKeyboardButton("👨‍👩‍👧‍👦 Split Equally (All)", callback_data="SPLIT_ALL")])
     keyboard.append([InlineKeyboardButton("📝 Split by amounts", callback_data="SPLIT_AMOUNTS")])
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="CANCEL")])
@@ -143,13 +139,10 @@ async def select_payee(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payee_data = query.data
     context.user_data['payee_data'] = payee_data
 
-    # --- Branching Logic ---
     if payee_data == "SPLIT_AMOUNTS":
         await query.edit_message_text("Starting detailed allocation...\n\nSelect the first person:", parse_mode='Markdown')
-        # Pass update object to ensure prompt_consumer_selection can decide how to reply
         return await prompt_consumer_selection(update, context)
     else:
-        # Pass control to the finalizer for simple 1-to-1 or Equal Split
         return await finalize_split(update, context)
 
 # --- Detailed Split Handlers ---
@@ -157,7 +150,6 @@ async def select_payee(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def prompt_consumer_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Helper to show available users to allocate amounts to."""
     total_amount = context.user_data['amount']
-    # Calculate current allocation sum
     allocations = context.user_data['split_allocations']
     current_spent = sum(allocations.values())
     remaining = total_amount - current_spent
@@ -166,7 +158,6 @@ async def prompt_consumer_selection(update: Update, context: ContextTypes.DEFAUL
     payer_name = context.user_data['payer_name']
 
     keyboard = []
-    # List all users (except payer initially), adding amounts to label if already allocated
     for user_id, name in context.user_data['user_map'].items():
         if user_id != payer_id:
             label = name
@@ -174,13 +165,11 @@ async def prompt_consumer_selection(update: Update, context: ContextTypes.DEFAUL
                 label = f"{name} ({allocations[user_id]:.2f})"
             keyboard.append([InlineKeyboardButton(label, callback_data=str(user_id))])
 
-    # Add Payer button (explicitly allowed for self-allocation)
     payer_label = f"🧑‍💻 {payer_name} (Payer)"
     if payer_id in allocations:
         payer_label = f"🧑‍💻 {payer_name} ({allocations[payer_id]:.2f})"
     keyboard.append([InlineKeyboardButton(payer_label, callback_data=str(payer_id))])
 
-    # Show FINISH button if at least one person allocated
     if current_spent > 0:
         finish_lbl = f"✅ FINISH ({remaining:.2f} left)"
         keyboard.append([InlineKeyboardButton(finish_lbl, callback_data="FINISH_SPLIT")])
@@ -216,10 +205,8 @@ async def select_consumer_for_split(update: Update, context: ContextTypes.DEFAUL
 
     consumer_name = context.user_data['user_map'].get(consumer_id, "Unknown")
 
-    # Check if we are editing an existing value
     current_val = context.user_data['split_allocations'].get(consumer_id)
 
-    # Calculate remaining (logic: total - allocated + current_val_being_edited)
     total_amount = context.user_data['amount']
     current_spent = sum(context.user_data['split_allocations'].values())
     remaining = total_amount - current_spent
@@ -250,23 +237,18 @@ async def enter_consumer_amount(update: Update, context: ContextTypes.DEFAULT_TY
         val = float(text)
         if val < 0: raise ValueError
 
-        # Overwrite or set the new amount
         context.user_data['split_allocations'][consumer_id] = val
         del context.user_data['current_consumer_id']
 
-        # Loop back
         return await prompt_consumer_selection(update, context)
 
     except ValueError:
         await update.message.reply_text("Invalid amount. Enter a positive number.")
         return ENTER_CONSUMER_AMOUNT
 
-# --- Finalization ---
-
 async def finalize_split(update, context, detailed=False):
     """Saves the transaction to DB. Fixed to accept 'update' for chat ID access."""
     data = context.user_data
-    # FIX: Use update.effective_chat instead of context.effective_chat
     chat_id = update.effective_chat.id
     thread_id = update.effective_message.message_thread_id
 
@@ -274,11 +256,9 @@ async def finalize_split(update, context, detailed=False):
     total_amount = data['amount']
     payee_arg = data.get('payee_data')
 
-    # If detailed, prepare the specific dict format for create_full_transaction
     if detailed:
-        # Check validation
         allocated_sum = sum(data['split_allocations'].values())
-        if allocated_sum > total_amount + 0.05: # Small float tolerance
+        if allocated_sum > total_amount + 0.05: 
             error_msg = "❌ Total allocated exceeds original amount. Please retry."
             if update.callback_query:
                 await update.callback_query.edit_message_text(error_msg)
@@ -286,7 +266,6 @@ async def finalize_split(update, context, detailed=False):
                 await update.message.reply_text(error_msg)
             return await prompt_consumer_selection(update, context)
 
-        # Assign remainder to payer if implied
         remaining = total_amount - allocated_sum
         if remaining > 0.01:
             payer_id = data['payer_id']
@@ -308,7 +287,6 @@ async def finalize_split(update, context, detailed=False):
             description=data['description']
         )
 
-        # Success Message
         if detailed:
             msg = (f"✅ **Detailed Split Recorded!**\n"
                    f"📌 {data['description']}\n"
