@@ -135,7 +135,7 @@ async def create_full_transaction(chat_id, thread_id, payer_id, payee_id_or_spli
         created_records = []
 
         # 2. Determine Logic: Split by amount, Split equally, or Single payee
-        if isinstance(payee_id_or_split, dict) and payee_id_or_split.get('type') == 'SPLIT_BY_AMOUNT':
+        if isinstance(payee_id_or_split, dict) and payee_id_or_split.get('type') == 'DETAILED_SPLIT':
             # --- SPLIT BY AMOUNTS LOGIC ---
             allocations = payee_id_or_split['allocations']
             for payee_id, payee_amount in allocations.items():

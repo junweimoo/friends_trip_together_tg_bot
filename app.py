@@ -15,8 +15,10 @@ from telegram.ext import (
 
 from database import init_db, upsert_user
 from pay import (
-    start_pay, select_payer, select_payee, enter_amount, select_currency, enter_comment, cancel,
-    SELECT_PAYER, SELECT_PAYEE, ENTER_AMOUNT, SELECT_CURRENCY, ENTER_COMMENT
+    start_pay, select_payer, enter_comment, enter_amount, select_currency, select_payee,
+    select_consumer_for_split, enter_consumer_amount, cancel,
+    SELECT_PAYER, ENTER_COMMENT, ENTER_AMOUNT, SELECT_CURRENCY, SELECT_PAYEE,
+    SELECT_CONSUMER_FOR_SPLIT, ENTER_CONSUMER_AMOUNT
 )
 from settle import list_settlements
 from simplify import suggest_settlements
@@ -85,12 +87,18 @@ if __name__ == '__main__':
     pay_handler = ConversationHandler(
         entry_points=[CommandHandler('pay', start_pay)],
         states={
-            # Corrected Flow: Payer -> Recipient -> Amount -> Currency -> Comment
+            # Core Flow: Payer -> Comment -> Amount -> Currency -> Payee Type
             SELECT_PAYER: [CallbackQueryHandler(select_payer)],
-            SELECT_PAYEE: [CallbackQueryHandler(select_payee)],
+            ENTER_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_comment)],
             ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount)],
             SELECT_CURRENCY: [CallbackQueryHandler(select_currency)],
-            ENTER_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_comment)],
+
+            # Branching Step: Payee Selection (triggers simple save or detailed split)
+            SELECT_PAYEE: [CallbackQueryHandler(select_payee)],
+
+            # Detailed Split Loop:
+            SELECT_CONSUMER_FOR_SPLIT: [CallbackQueryHandler(select_consumer_for_split)],
+            ENTER_CONSUMER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_consumer_amount)],
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
