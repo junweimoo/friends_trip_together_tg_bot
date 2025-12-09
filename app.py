@@ -16,7 +16,7 @@ from telegram.ext import (
 from database import init_db, upsert_user
 from pay import (
     start_pay, select_payer, enter_comment, enter_amount, select_currency, select_payee,
-    select_consumer_for_split, enter_consumer_amount, cancel,
+    select_consumer_for_split, enter_consumer_amount, cancel, undo_pay,
     SELECT_PAYER, ENTER_COMMENT, ENTER_AMOUNT, SELECT_CURRENCY, SELECT_PAYEE,
     SELECT_CONSUMER_FOR_SPLIT, ENTER_CONSUMER_AMOUNT
 )
@@ -44,6 +44,7 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_lines.append("/pay - Record a new payment (supports detailed splits!)")
     reply_lines.append("/list - Show transaction history and net balances")
     reply_lines.append("/settle - Show the most efficient way to pay everyone back")
+    reply_lines.append("/undo - Remove the last transaction recorded in this chat")
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -82,6 +83,7 @@ if __name__ == '__main__':
     )
 
     application.add_handler(pay_handler)
+    application.add_handler(CommandHandler('undo', undo_pay))
     application.add_handler(CommandHandler('list', list_settlements))
     application.add_handler(CommandHandler('settle', suggest_settlements))
     application.add_handler(CommandHandler('register', register))

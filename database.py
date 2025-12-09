@@ -1,6 +1,9 @@
 import os
 from datetime import datetime
-from sqlalchemy import Column, BigInteger, String, DateTime, Numeric, Integer, select, ForeignKey, Index, func
+from sqlalchemy import (
+    select, delete, func, 
+    Column, BigInteger, String, DateTime, Numeric, Integer, ForeignKey, Index
+)
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -227,3 +230,44 @@ async def create_full_transaction(chat_id, thread_id, payer_id, payee_id_or_spli
 
         await session.commit()
         return len(created_records)
+
+async def delete_last_transaction(user_id, chat_id, thread_id):
+    async with get_session() as session:
+        # 1. Find the most recently created PaymentGroup ID in this context
+        stmt_find_group = select(PaymentGroup.group_id).where(
+            PaymentGroup.chat_id == chat_id,
+            PaymentGroup.thread_id == thread_id,
+        ).order_by(PaymentGroup.gmt_created.desc()).limit(1)
+        
+        group_id_to_delete = (await session.execute(stmt_find_group)).scalar_one_or_none()
+
+        if not group_id_to_delete:
+            return False # No group found
+
+        # 2. Find ALL PayRecord IDs belonging to that group
+        stmt_find_all_records = select(PaymentGroupLink.pay_record_id).where(
+            PaymentGroupLink.group_id == group_id_to_delete
+        )
+        record_ids_in_group = (await session.execute(stmt_find_all_records)).scalars().all()
+        
+        # 3. Delete all links in the group
+        stmt_delete_links = delete(PaymentGroupLink).where(
+            PaymentGroupLink.group_id == group_id_to_delete
+        )
+        await session.execute(stmt_delete_links)
+
+        # 4. Delete all PayRecords that belonged to the group (using .in_() for the list)
+        if record_ids_in_group:
+            stmt_delete_records = delete(PayRecord).where(
+                PayRecord.pay_record_id.in_(record_ids_in_group)
+            )
+            await session.execute(stmt_delete_records)
+
+        # 5. Delete the PaymentGroup itself
+        stmt_delete_group = delete(PaymentGroup).where(
+            PaymentGroup.group_id == group_id_to_delete
+        )
+        await session.execute(stmt_delete_group)
+
+        await session.commit()
+        return True

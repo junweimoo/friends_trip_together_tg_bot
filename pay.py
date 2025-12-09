@@ -2,7 +2,8 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
-from database import get_session, get_chat_users, create_full_transaction
+from database import get_session, get_chat_users, create_full_transaction, delete_last_transaction
+from utils import get_chat_thread_user_id
 
 SELECT_PAYER, ENTER_COMMENT, ENTER_AMOUNT, SELECT_CURRENCY, SELECT_PAYEE, \
     SELECT_CONSUMER_FOR_SPLIT, ENTER_CONSUMER_AMOUNT = range(7)
@@ -342,3 +343,14 @@ def is_message_sender_initiator(update: Update, context: ContextTypes.DEFAULT_TY
     initiator_id = context.user_data['initiator_id']
     sender_id = update.effective_user.id
     return sender_id == initiator_id
+
+async def undo_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id, thread_id, user_id = get_chat_thread_user_id(update)
+    try:
+        await delete_last_transaction(user_id, chat_id, thread_id)
+        success_msg = f"✅ **Last transaction deleted**"
+        await update.message.reply_text(success_msg)
+    except Exception as e: 
+        logging.error(f"DB Error: {e}")
+        error_msg = "❌ Error saving transaction."
+        await update.message.reply_text(error_msg)
