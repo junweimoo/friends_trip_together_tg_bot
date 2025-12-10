@@ -20,9 +20,12 @@ from pay import (
     SELECT_PAYER, ENTER_COMMENT, ENTER_AMOUNT, SELECT_CURRENCY, SELECT_PAYEE,
     SELECT_CONSUMER_FOR_SPLIT, ENTER_CONSUMER_AMOUNT
 )
+from settle import (
+    start_settle, select_settle_currency, store_rate,
+    SELECT_SETTLE_CURRENCY, ENTER_RATE
+)
 from users import register
 from list import list_settlements
-from simplify import suggest_settlements
 
 load_dotenv()
 TOKEN = os.getenv('BOT_TOKEN')
@@ -45,6 +48,7 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_lines.append("/list - Show transaction history and net balances")
     reply_lines.append("/settle - Show the most efficient way to pay everyone back")
     reply_lines.append("/undo - Remove the last transaction recorded in this chat")
+    reply_lines.append("/cancel - Cancel an ongoing transaction")
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -81,11 +85,20 @@ if __name__ == '__main__':
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
-
     application.add_handler(pay_handler)
+
+    settle_handler = ConversationHandler(
+        entry_points=[CommandHandler('settle', start_settle)],
+        states={
+            SELECT_SETTLE_CURRENCY: [CallbackQueryHandler(select_settle_currency)],
+            ENTER_RATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, store_rate)],
+        },
+        fallbacks =[CommandHandler('cancel', cancel)]
+    )
+    application.add_handler(settle_handler)
+
     application.add_handler(CommandHandler('undo', undo_pay))
     application.add_handler(CommandHandler('list', list_settlements))
-    application.add_handler(CommandHandler('settle', suggest_settlements))
     application.add_handler(CommandHandler('register', register))
     application.add_handler(CommandHandler('help', help))
 
