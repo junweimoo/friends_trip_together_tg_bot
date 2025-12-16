@@ -157,12 +157,12 @@ async def create_full_transaction(chat_id, thread_id, payer_id, payee_id_or_spli
         created_records = []
 
         # 2. Determine Logic: Split by amount, Split equally, or Single payee
-        if isinstance(payee_id_or_split, dict) and payee_id_or_split.get('type') == 'DETAILED_SPLIT':
+        if payee_id_or_split.get('type') == 'DETAILED_SPLIT':
             # --- SPLIT BY AMOUNTS LOGIC ---
             allocations = payee_id_or_split['allocations']
             for payee_id, payee_amount in allocations.items():
-                if payee_id == payer_id:
-                    continue
+                # if payee_id == payer_id:
+                #     continue
                 record = PayRecord(
                     chat_id=chat_id,
                     thread_id=thread_id,
@@ -175,7 +175,7 @@ async def create_full_transaction(chat_id, thread_id, payer_id, payee_id_or_spli
                 created_records.append(record)
             pass
 
-        elif payee_id_or_split == "SPLIT_ALL":
+        elif payee_id_or_split.get('type') == "SPLIT_ALL":
             # --- SPLIT EQUALLY LOGIC ---
             all_users = await get_chat_users(session, chat_id, thread_id)
             
@@ -189,9 +189,8 @@ async def create_full_transaction(chat_id, thread_id, payer_id, payee_id_or_spli
             split_amount = total_amount / count
 
             for user in all_users:
-                # Don't create a debt record for the payer paying themselves
-                if user.user_id == payer_id:
-                    continue
+                # if user.user_id == payer_id:
+                #     continue
                 
                 record = PayRecord(
                     chat_id=chat_id,
@@ -204,9 +203,9 @@ async def create_full_transaction(chat_id, thread_id, payer_id, payee_id_or_spli
                 session.add(record)
                 created_records.append(record)
                 
-        else:
+        elif payee_id_or_split.get('type') == "SINGLE_PAYEE":
             # --- SINGLE PAYEE LOGIC ---
-            payee_id = int(payee_id_or_split)
+            payee_id = int(payee_id_or_split.get('id'))
             record = PayRecord(
                 chat_id=chat_id,
                 thread_id=thread_id,

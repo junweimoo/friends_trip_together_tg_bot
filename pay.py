@@ -1,4 +1,6 @@
 import logging
+import json
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
@@ -54,7 +56,7 @@ async def select_payer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['payer_name'] = context.user_data['user_map'].get(payer_id, "Unknown")
 
     await query.edit_message_text(
-        f"📝 What is this payment for? (Enter a description)",
+        f"📝 What is this payment for? (Enter a description)\n/cancel to cancel",
         parse_mode='Markdown'
     )
     return ENTER_COMMENT
@@ -69,7 +71,7 @@ async def enter_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['description'] = description
 
     await update.message.reply_text(
-        f"💰 Enter the **TOTAL AMOUNT** (e.g., 60.00):",
+        f"💰 Enter the **TOTAL AMOUNT** (e.g., 60.00):\n/cancel to cancel",
         parse_mode='Markdown'
     )
     return ENTER_AMOUNT
@@ -98,8 +100,12 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     currencies_1 = ["SGD", "MYR", "USD", "EUR"]
     currencies_2 = ["CNY", "THB", "VND", "HKD"]
+    currencies_3 = ["JPY", "GBP", "CAD", "AUD"]
+    currencies_4 = ["CHF", "NZD", "SEK", "NOK"]
     keyboard = [[InlineKeyboardButton(curr, callback_data=curr) for curr in currencies_1]]
     keyboard.append([InlineKeyboardButton(curr, callback_data=curr) for curr in currencies_2])
+    keyboard.append([InlineKeyboardButton(curr, callback_data=curr) for curr in currencies_3])
+    keyboard.append([InlineKeyboardButton(curr, callback_data=curr) for curr in currencies_4])
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="CANCEL")])
 
     await update.message.reply_text(
@@ -126,10 +132,16 @@ async def select_currency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     for user_id, name in context.user_data['user_map'].items():
         if user_id != payer_id:
-            keyboard.append([InlineKeyboardButton(name, callback_data=str(user_id))])
-
-    keyboard.append([InlineKeyboardButton("👨‍👩‍👧‍👦 Split Equally (All)", callback_data="SPLIT_ALL")])
-    keyboard.append([InlineKeyboardButton("📝 Split by amounts", callback_data="SPLIT_AMOUNTS")])
+            keyboard.append([InlineKeyboardButton(name, callback_data=json.dumps({
+                'type': 'SINGLE_PAYEE',
+                'id': str(user_id)
+            }))])
+    keyboard.append([InlineKeyboardButton("👨‍👩‍👧‍👦 Split Equally (All)", callback_data=json.dumps({
+        'type': "SPLIT_ALL"
+    }))])
+    keyboard.append([InlineKeyboardButton("📝 Split by amounts", callback_data=json.dumps({
+        'type': "SPLIT_AMOUNTS"
+    }))])
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="CANCEL")])
 
     await query.edit_message_text(
@@ -148,10 +160,10 @@ async def select_payee(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Transaction cancelled.")
         return ConversationHandler.END
 
-    payee_data = query.data
+    payee_data = json.loads(query.data)
     context.user_data['payee_data'] = payee_data
 
-    if payee_data == "SPLIT_AMOUNTS":
+    if payee_data['type'] == "SPLIT_AMOUNTS":
         await query.edit_message_text("Starting manual allocation...", parse_mode='Markdown')
         return await prompt_consumer_selection(update, context)
     else:
@@ -271,6 +283,7 @@ async def finalize_split(update, context, detailed=False):
     payer_name = data.get('payer_name', 'Unknown')
     total_amount = data['amount']
     payee_arg = data.get('payee_data')
+    user_map = data.get('user_map')
 
     if detailed:
         allocated_sum = sum(data['split_allocations'].values())
@@ -278,6 +291,7 @@ async def finalize_split(update, context, detailed=False):
             error_msg = "❌ Total allocated exceeds original amount. Please retry."
             if update.callback_query:
                 await update.callback_query.edit_message_text(error_msg)
+                await asyncio.sleep(2)
             else:
                 await update.message.reply_text(error_msg)
             return await prompt_consumer_selection(update, context)
@@ -304,21 +318,24 @@ async def finalize_split(update, context, detailed=False):
         )
 
         if detailed:
+            payee_info = [f"{value:.2f} to {user_map.get(id)}" for (id, value) in data['split_allocations'].items()]
             msg = (f"✅ **Manual Split Recorded!**\n"
                    f"📌 {data['description']}\n"
                    f"👤 Payer: {payer_name}\n"
-                   f"💵 Total: {total_amount} {data['currency']}")
-        elif payee_arg == "SPLIT_ALL":
+                   f"💵 Total: {total_amount:.2f} {data['currency']}\n"
+                   f"{'\n'.join(payee_info)}")
+        elif payee_arg['type'] == "SPLIT_ALL":
             msg = (f"✅ **Equal Split Recorded!**\n"
                    f"📌 {data['description']}\n"
                    f"👤 Payer: {payer_name}\n"
-                   f"💵 Total: {total_amount} {data['currency']}\n"
-                   f"🔗 Split among {record_count + 1} people")
+                   f"💵 Total: {total_amount:.2f} {data['currency']}\n"
+                   f"🔗 Split among {record_count} people")
         else:
             msg = (f"✅ **Payment Recorded!**\n"
                    f"📌 {data['description']}\n"
                    f"👤 From: {payer_name}\n"
-                   f"💵 Amount: {total_amount} {data['currency']}")
+                   f"👤 To: {user_map.get(int(payee_arg['id']))}\n"
+                   f"💵 Amount: {total_amount:.2f} {data['currency']}")
 
         if update.callback_query:
             await update.callback_query.edit_message_text(msg, parse_mode='Markdown')

@@ -43,7 +43,7 @@ async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 3. Process Data
         balances = defaultdict(lambda: defaultdict(float))
-        history_text_lines = ["📜 **Transaction History**\n"]
+        history_text_lines = ["📜 <b>Transaction History</b>\n"]
         
         last_group_id = None
 
@@ -58,7 +58,7 @@ async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Check if this record belongs to a new group context
             if group_id and group_id != last_group_id:
-                history_text_lines.append(f"\n📂 **{group_name}**\n")
+                history_text_lines.append(f"\n📂 <b>{group_name}</b>\n")
             
             # Indent if inside a group, otherwise standard bullet
             prefix = "  •" if group_id else "•"
@@ -68,7 +68,7 @@ async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
             last_group_id = group_id
 
         # 4. Format Net Balances
-        summary_text_lines = ["📊 **Net Balances**\n"]
+        summary_text_lines = ["📊 <b>Net Balances</b>\n"]
         has_balances = False
         
         for user_id, currencies in balances.items():
@@ -86,7 +86,7 @@ async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if user_lines:
                 has_balances = True
-                summary_text_lines.append(f"\n• **{user_name}**: {', '.join(user_lines)}\n")
+                summary_text_lines.append(f"\n• <b>{user_name}</b>: {', '.join(user_lines)}\n")
 
         if not has_balances:
             summary_text_lines.append("\nAll settled up! ✅")
@@ -95,5 +95,5 @@ async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         split_msgs = split_lines(summary_text_lines + history_text_lines)
         for msg in split_msgs:
-            await update.message.reply_text(msg, parse_mode='Markdown')
+            await update.message.reply_text(msg, parse_mode='HTML')
 

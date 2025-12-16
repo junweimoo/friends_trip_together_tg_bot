@@ -2,7 +2,7 @@ from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from sqlalchemy import select
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, ConversationHandler
 
 from database import get_session, PayRecord, User, get_chat_users
 from utils import get_chat_thread_user_id
@@ -207,3 +207,5 @@ async def calculate_settlements(update: Update, context: ContextTypes.DEFAULT_TY
             msg += f"• **{payer}** pays **{payee}** {amount:.2f} {curr}\n"
         
         await update.message.reply_text(msg, parse_mode='Markdown')
+        
+    return ConversationHandler.END
