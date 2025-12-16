@@ -12,8 +12,12 @@ SELECT_SETTLE_CURRENCY, ENTER_RATE = range(2)
 async def start_settle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     currencies_1 = ["SGD", "MYR", "USD", "EUR"]
     currencies_2 = ["CNY", "THB", "VND", "HKD"]
+    currencies_3 = ["JPY", "GBP", "CAD", "AUD"]
+    currencies_4 = ["CHF", "NZD", "SEK", "NOK"]
     keyboard = [[InlineKeyboardButton(curr, callback_data=curr) for curr in currencies_1]]
     keyboard.append([InlineKeyboardButton(curr, callback_data=curr) for curr in currencies_2])
+    keyboard.append([InlineKeyboardButton(curr, callback_data=curr) for curr in currencies_3])
+    keyboard.append([InlineKeyboardButton(curr, callback_data=curr) for curr in currencies_4])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     chat_id, thread_id, user_id = get_chat_thread_user_id(update)
@@ -200,12 +204,10 @@ async def calculate_settlements(update: Update, context: ContextTypes.DEFAULT_TY
         # 5. Output Results
         if not settlement_plan:
             await update.message.reply_text("Everyone is all settled up! 🎉")
-            return
-
-        msg = "🤝 To settle all owed amounts efficiently:\n"
-        for payer, payee, amount, curr in settlement_plan:
-            msg += f"• **{payer}** pays **{payee}** {amount:.2f} {curr}\n"
-        
-        await update.message.reply_text(msg, parse_mode='Markdown')
+        else:
+            msg = "🤝 To settle all owed amounts efficiently:\n"
+            for payer, payee, amount, curr in settlement_plan:
+                msg += f"• **{payer}** pays **{payee}** {amount:.2f} {curr}\n"
+            await update.message.reply_text(msg, parse_mode='Markdown')
         
     return ConversationHandler.END
