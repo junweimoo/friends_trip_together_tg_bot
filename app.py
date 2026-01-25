@@ -43,7 +43,7 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_first_name = update.effective_user.first_name
 
     reply_lines = [f"Hello, {user_first_name}!"]
-    reply_lines.append("/register {your name} - Register in this group")
+    reply_lines.append("/register - Register in this group")
     reply_lines.append("/pay - Record a new payment (supports detailed splits!)")
     reply_lines.append("/list - Show transaction history and net balances")
     reply_lines.append("/settle - Show the most efficient way to pay everyone back")

@@ -6,19 +6,14 @@ from telegram.ext import ContextTypes
 from database import get_session, User, upsert_user, check_username_exists
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /register {username}")
+    provided_args = " ".join(context.args)
+    user_full_name = f"{update.effective_user.first_name or ''} {update.effective_user.last_name or ''}".strip()
+    
+    username = provided_args if context.args else user_full_name
+
+    if not (1 <= len(username) <= 40):
+        await update.message.reply_text("Error: Username must be between 1 and 40 characters.")
         return
-
-    username = " ".join(context.args)
-
-    if not (2 <= len(username) <= 20):
-        await update.message.reply_text("Error: Username must be between 2 and 20 characters.")
-        return
-
-    if not username.replace(" ", "").isalpha():
-         await update.message.reply_text("Error: Username must contain letters and spaces only.")
-         return
 
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id

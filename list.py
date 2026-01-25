@@ -58,7 +58,9 @@ async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Check if this record belongs to a new group context
             if group_id and group_id != last_group_id:
-                history_text_lines.append(f"\n📂 <b>{group_name}</b>\n")
+                history_text_lines.append(
+                    f"\n📂 <b>{group_name}</b>\n")
+                    # f"{record.gmt_created.strftime("%d %b %H:%M")}\n")
             
             # Indent if inside a group, otherwise standard bullet
             prefix = "  •" if group_id else "•"
