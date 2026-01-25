@@ -1,20 +1,21 @@
+import math
+import logging
 from collections import defaultdict
 from sqlalchemy import select
-from telegram import Update
-from telegram.ext import ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, ConversationHandler
 
 from database import get_session, PayRecord, User, PaymentGroup, PaymentGroupLink, get_chat_users
 from utils import split_lines
 
-async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Lists all transactions (grouped by payment group) and calculates net balances.
-    """
-    chat_id = update.effective_chat.id
-    thread_id = update.effective_message.message_thread_id
+LIST_PAGE = range(1)
 
+MAX_PAGES = 10000000
+ITEMS_PER_PAGE = 20
+
+async def generate_ledger_view(chat_id, thread_id, page_number):
     async with get_session() as session:
-        # 1. Fetch records
+        # 1. Fetch all records in this chat
         stmt = select(
             PayRecord, 
             PaymentGroup.name, 
@@ -31,45 +32,22 @@ async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).order_by(PayRecord.gmt_created.asc())
         
         records_result = await session.execute(stmt)
-        rows = records_result.all()
+        all_rows = records_result.all()
 
-        if not rows:
-            await update.message.reply_text("No transactions found in this chat.")
-            return
+        if not all_rows:
+            return "No transactions found in this chat.", None
 
-        # 2. Fetch Users
+        # 2. Fetch all users in this chat
         users = await get_chat_users(session, chat_id, thread_id)
         user_map = {u.user_id: u.name for u in users}
 
-        # 3. Process Data
+        # 3. Calculate global net balances
         balances = defaultdict(lambda: defaultdict(float))
-        history_text_lines = ["📜 <b>Transaction History</b>\n"]
-        
-        last_group_id = None
-
-        for record, group_name, group_id in rows:
-            # --- Balance Calculation ---
+        for record, _, _ in all_rows:
             balances[record.from_user_id][record.currency] += float(record.value)
             balances[record.to_user_id][record.currency] -= float(record.value)
 
-            # --- Formatting History ---
-            payer = user_map.get(record.from_user_id, "Unknown")
-            payee = user_map.get(record.to_user_id, "Unknown")
-
-            # Check if this record belongs to a new group context
-            if group_id and group_id != last_group_id:
-                history_text_lines.append(
-                    f"\n📂 <b>{group_name}</b>\n")
-                    # f"{record.gmt_created.strftime("%d %b %H:%M")}\n")
-            
-            # Indent if inside a group, otherwise standard bullet
-            prefix = "  •" if group_id else "•"
-            
-            history_text_lines.append(f"{prefix} {payer} ➜ {payee}: {record.value:.2f} {record.currency}\n")
-            
-            last_group_id = group_id
-
-        # 4. Format Net Balances
+        # 4. Format net balances
         summary_text_lines = ["📊 <b>Net Balances</b>\n"]
         has_balances = False
         
@@ -80,22 +58,114 @@ async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for currency, amount in currencies.items():
                 if abs(amount) < 0.01: 
                     continue
-                
                 if amount > 0:
-                    user_lines.append(f"is owed {amount:.2f} {currency}")
+                    user_lines.append(f"receives {amount:.2f} {currency}")
                 else:
                     user_lines.append(f"owes {abs(amount):.2f} {currency}")
             
             if user_lines:
                 has_balances = True
-                summary_text_lines.append(f"\n• <b>{user_name}</b>: {', '.join(user_lines)}\n")
+                summary_text_lines.append(f"• <b>{user_name}</b>: {', '.join(user_lines)}")
 
         if not has_balances:
-            summary_text_lines.append("\nAll settled up! ✅")
+            summary_text_lines.append("All settled up! ✅")
 
-        summary_text_lines.append('\n')
+        summary_text_lines.append("\n" + "─" * 15 + "\n") # Separator
 
-        split_msgs = split_lines(summary_text_lines + history_text_lines)
-        for msg in split_msgs:
-            await update.message.reply_text(msg, parse_mode='HTML')
+        # 5. Handle pagination
+        total_records = len(all_rows)
+        total_pages = math.ceil(total_records / ITEMS_PER_PAGE)
 
+        if page_number < 1: page_number = 1
+        if page_number > total_pages: page_number = total_pages
+
+        start_index = (page_number - 1) * ITEMS_PER_PAGE
+        end_index = start_index + ITEMS_PER_PAGE
+        page_rows = all_rows[start_index:end_index]
+
+        # 6. Format transaction history in this page
+        history_text_lines = [f"📜 <b>History (Page {page_number}/{total_pages})</b>\n"]
+        
+        last_group_id = None
+        
+        if start_index > 0:
+            _, _, last_group_id = all_rows[start_index - 1]
+
+        for record, group_name, group_id in page_rows:
+            payer = user_map.get(record.from_user_id, "Unknown")
+            payee = user_map.get(record.to_user_id, "Unknown")
+
+            if group_id and group_id != last_group_id:
+                history_text_lines.append(f"\n📂 <b>{group_name}</b>")
+            
+            prefix = "  •" if group_id else "•"
+            history_text_lines.append(f"{prefix} {payer} ➜ {payee}: {record.value:.2f} {record.currency}")
+            
+            last_group_id = group_id
+
+        full_text = "\n".join(summary_text_lines + history_text_lines)
+
+        keyboard = []
+        nav_row = []
+        
+        if page_number > 1:
+            nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"list_page_{page_number - 1}"))
+        
+        if page_number < total_pages:
+            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"list_page_{page_number + 1}"))
+        
+        nav_row.append(InlineKeyboardButton("Close", callback_data="CLOSE"))
+            
+        if nav_row:
+            keyboard.append(nav_row)
+
+        return full_text, InlineKeyboardMarkup(keyboard)
+
+
+async def list_settlements(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    thread_id = update.effective_message.message_thread_id
+
+    if "ledger_messages" not in context.chat_data:
+        context.chat_data["ledger_messages"] = {}
+    
+    text, reply_markup = await generate_ledger_view(chat_id, thread_id, page_number=MAX_PAGES)
+    
+    if text:
+        thread_key = thread_id if thread_id else "general"
+
+        last_msg_id = context.chat_data["ledger_messages"].get(thread_key)
+        if last_msg_id:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=last_msg_id)
+            except Exception:
+                pass
+
+        message = await update.message.reply_text(text, parse_mode='HTML', reply_markup=reply_markup)
+        context.chat_data["ledger_messages"][thread_key] = message.message_id
+    return LIST_PAGE
+
+async def list_pagination_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "CLOSE":
+        await query.edit_message_text("List closed.")
+        return ConversationHandler.END
+    
+    target_page = int(query.data.split("_")[-1])
+    
+    chat_id = update.effective_chat.id
+    thread_id = update.effective_message.message_thread_id
+    
+    text, reply_markup = await generate_ledger_view(chat_id, thread_id, page_number=target_page)
+    
+    try:
+        await query.edit_message_text(text, parse_mode='HTML', reply_markup=reply_markup)
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            logging.error(f"Error editing message: {e}")
+    return LIST_PAGE
+
+async def close_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return ConversationHandler.END

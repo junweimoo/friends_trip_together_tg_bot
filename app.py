@@ -24,8 +24,11 @@ from settle import (
     start_settle, select_settle_currency, store_rate,
     SELECT_SETTLE_CURRENCY, ENTER_RATE
 )
+from list import (
+    list_settlements, list_pagination_callback, close_list,
+    LIST_PAGE
+)
 from users import register
-from list import list_settlements
 
 load_dotenv()
 TOKEN = os.getenv('BOT_TOKEN')
@@ -44,7 +47,7 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply_lines = [f"Hello, {user_first_name}!"]
     reply_lines.append("/register - Register in this group")
-    reply_lines.append("/pay - Record a new payment (supports detailed splits!)")
+    reply_lines.append("/pay - Record a new payment")
     reply_lines.append("/list - Show transaction history and net balances")
     reply_lines.append("/settle - Show the most efficient way to pay everyone back")
     reply_lines.append("/undo - Remove the last transaction recorded in this chat")
@@ -83,7 +86,8 @@ if __name__ == '__main__':
             SELECT_CONSUMER_FOR_SPLIT: [CallbackQueryHandler(select_consumer_for_split)],
             ENTER_CONSUMER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_consumer_amount)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)]
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
     )
     application.add_handler(pay_handler)
 
@@ -93,12 +97,23 @@ if __name__ == '__main__':
             SELECT_SETTLE_CURRENCY: [CallbackQueryHandler(select_settle_currency)],
             ENTER_RATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, store_rate)],
         },
-        fallbacks =[CommandHandler('cancel', cancel)]
+        fallbacks =[CommandHandler('cancel', cancel)],
+        allow_reentry=True
     )
     application.add_handler(settle_handler)
 
     application.add_handler(CommandHandler('undo', undo_pay))
-    application.add_handler(CommandHandler('list', list_settlements))
+    
+    list_handler = ConversationHandler(
+        entry_points=[CommandHandler("list", list_settlements)],
+        states={
+            LIST_PAGE: [CallbackQueryHandler(list_pagination_callback)]
+        },
+        fallbacks =[CommandHandler('close', close_list)],
+        allow_reentry=True
+    )
+    application.add_handler(list_handler)
+
     application.add_handler(CommandHandler('register', register))
     application.add_handler(CommandHandler('help', help))
 
